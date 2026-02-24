@@ -1,9 +1,13 @@
+#pragma once
 #include <algorithm>
 #include <cstdio>
 #include <iostream>
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <random>
+
+
 struct Edge {
   float weight;
   int dest;
@@ -11,6 +15,8 @@ struct Edge {
     return (dest == otro.dest) && (weight == otro.weight);
   }
 };
+
+
 
 template <typename IDType, typename ContentType> class Graph {
 public:
@@ -133,25 +139,95 @@ public:
     }
   }
 
+  std::vector<std::vector<IDType>> get_walks(int num_steps, float p, float q) const{
+    std::vector<int> nodes;
+
+    int nodeCount = Contents.size(); 
+    nodes.reserve(nodeCount);
+    std::vector<std::vector<IDType>> walk_list;
+    walk_list.reserve(nodeCount);
+
+    for (int i = 0; i<nodeCount; i++){
+      if (std::find(free.begin(), free.end(), i) == free.end())
+        nodes.push_back(i);
+    }
+    std::shuffle(nodes.begin(), nodes.end(), gen);
+    
+    for (int node : nodes){
+      walk_list.push_back(get_random_walk(node, num_steps, p, q));
+    }
+
+    return walk_list;
+  }
+  
 private:
   std::unordered_map<IDType, int> IDs;
   std::vector<std::vector<Edge>> Adyacencias;
   std::vector<ContentType> Contents;
   std::vector<int> free;
   std::vector<IDType> ReverseIDs;
+  mutable std::mt19937 gen{std::random_device{}()};
+
+
+  std::vector<IDType> get_random_walk(int node, int num_steps, float p, float q) const{
+    if (Adyacencias[node].size() == 0){
+      return {};
+    }
+    std::vector<IDType> walk;
+    walk.reserve(num_steps);
+    int pos = node;
+    int prev = -1; 
+    std::vector<float> weights;
+    for (int iter=0; iter<num_steps; iter++){
+
+      walk.push_back(ReverseIDs[pos]);
+      const std::vector<Edge>& adyacentes = get_adyacent_edges(pos);
+      
+      weights.reserve(adyacentes.size());
+      
+      for (const Edge& edge : adyacentes ){
+        if (edge.dest == prev){
+          weights.push_back( edge.weight * (1.0/ p));
+        } else if  ( are_connected(prev, edge.dest)){
+          weights.push_back( edge.weight);
+        } else{
+          weights.push_back(edge.weight * (1.0 / q));
+        }
+      }
+
+      std::discrete_distribution<int> dist(weights.begin(), weights.end());
+      int next = adyacentes[dist(gen)].dest; 
+      prev = pos;
+      pos = next;
+      weights.clear();
+    }
+    return walk;
+
+  }
+
+
+  const std::vector<Edge>& get_adyacent_edges(int node) const{
+    return  Adyacencias[node];
+  }
+
+  bool are_connected(int node1, int node2) const{
+    if (node1 == -1 || node2==-1){
+      return false;
+    }
+    if (node1 >= Contents.size()){
+      printf("Node 1 not in graph");
+      return false;
+    }
+    if (node2 >= Contents.size()){
+      printf("Node 2 not in graph");
+      return false;
+    }
+    for (const Edge& ed : Adyacencias[node1]){
+      if (ed.dest == node2){
+        return true;
+      }
+    }
+    return false;
+  }
 };
 
-int main() {
-  Graph<std::string, std::vector<int>> grafo;
-  grafo.add_vertex("Paris", {1, 2, 3});
-  grafo.add_vertex("Madrid", {4, 5, 6});
-  grafo.add_edge("Paris", "Madrid", 2.0f);
-  grafo.add_vertex("Rome", {3, 4, 1, 2});
-  grafo.add_edge("Rome", "Paris", 3);
-  std::vector<std::string> ad = grafo.get_adyacent("Paris");
-  for (std::string &a : ad) {
-    std::cout << a << std::endl;
-  }
-  printf("0\n");
-  return 0;
-}

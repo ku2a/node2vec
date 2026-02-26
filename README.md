@@ -83,7 +83,9 @@ This is a fairly simple graph, requiring very few epochs.
 To evaluate how well the algorithm captures the topological and structural relationships of the graph, we reduced the dimensionality of the learned embeddings to 2D. Countries that share similar structural contexts in the graph appear clustered together. 
 
 **PCA Projection:**
+
 ![Europe Map PCA](outputs/figures/europe_map_pca.png)
 
 **t-SNE Projection:**
+
 ![Europe Map t-SNE](outputs/figures/europe_map_tsne.png)

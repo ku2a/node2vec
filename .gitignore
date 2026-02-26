@@ -1,2 +1,5 @@
 salida
 .vscode
+.venv
+build/*
+*.so

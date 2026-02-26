@@ -1,4 +1,9 @@
-This is an implementation of the node2vec algorithm programmed from scratch using C++ and no external libraries, as well as the graph implementation. It is fast and optimized using subsampling and Negative-sampling. We have used the pybind11 library to transform the code for python usage.
+This is an implementation of the node2vec algorithm programmed from scratch using C++ and no external C++ libraries, as well as the graph implementation. It is fast and optimized using subsampling and Negative-sampling. We have used the pybind11 library to transform the code for python usage.
+
+
+## node2vec
+
+node2vec is an algorithm based on a previous algoritm, word2vec, which turns words into embeddings, multidimensional vector that keep closer or father to each other depending on the similarity of their meaning or context. This is a powerful tool and one of the most important tools of NLP. node2vec treats nodes of a graph as words and chooses the sequences of "words" by doing Biased Random Walks (controled by parameters) and then feed the sequences to the same NN as in word2vec, an arquitecture called skipgram. The SkpGram.cpp programmed here can also be used for word2vec if implemented with the correct wrapper. node2vec is used nowadays to make recommendation systems, bot detection, EDA over graphs...
 
 ## Installation and Build
 

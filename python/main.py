@@ -100,8 +100,8 @@ for i, pais in enumerate(countries):
                  textcoords='offset points', fontsize=9, alpha=0.8, zorder=3)
 
 plt.title("Europe visualization with TSNE", fontsize=16, fontweight='bold')
-plt.xlabel("Componente Principal 1")
-plt.ylabel("Componente Principal 2")
+plt.xlabel("PC 1")
+plt.ylabel("PC 2")
 plt.grid(True, linestyle='--', alpha=0.5)
 plt.savefig(OUTPUT_DIR / "europe_map_tsne.png", dpi=300, bbox_inches='tight')
 plt.show()
@@ -125,8 +125,8 @@ for i, pais in enumerate(countries):
                  textcoords='offset points', fontsize=9, alpha=0.8, zorder=3)
 
 plt.title("Europe visualization with PCA", fontsize=16, fontweight='bold')
-plt.xlabel("Componente Principal 1")
-plt.ylabel("Componente Principal 2")
+plt.xlabel("PC 1")
+plt.ylabel("PC 2")
 plt.grid(True, linestyle='--', alpha=0.5)
 plt.savefig(OUTPUT_DIR / "europe_map_pca.png", dpi=300, bbox_inches='tight')
 plt.show()
@@ -139,3 +139,5 @@ plt.ylabel("Loss")
 plt.plot(losses, marker='o') 
 
 plt.show()
+
+modelo.save_model("models/modelo1")

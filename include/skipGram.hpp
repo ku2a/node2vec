@@ -3,7 +3,8 @@
 #include <random>
 #include "graph.hpp"
 #include <cmath>
-
+#include <fstream>
+#include <stdexcept>
 
 
 
@@ -11,12 +12,99 @@ template <typename IDType>
 class SkipGram{
     public:
 
-        SkipGram(int N, bool subsampling) : 
+        SkipGram(int N = 200, bool subsampling = false) : 
             dim_N(N),
             dim_V(0),    
             subsampling(subsampling),
             Iters(0)
         {}
+
+        void save_model(const std::string& filename) const {
+            std::ofstream out(filename, std::ios::binary);
+            if (!out) {
+                throw std::runtime_error("Error: No se pudo abrir el archivo para escribir: " + filename);
+            }
+
+
+            out.write(reinterpret_cast<const char*>(&dim_V), sizeof(int));
+            out.write(reinterpret_cast<const char*>(&dim_N), sizeof(int));
+            out.write(reinterpret_cast<const char*>(&Iters), sizeof(int));
+            out.write(reinterpret_cast<const char*>(&subsampling), sizeof(bool));
+
+
+            out.write(reinterpret_cast<const char*>(W1.data()), W1.size() * sizeof(float));
+            out.write(reinterpret_cast<const char*>(W2.data()), W2.size() * sizeof(float));
+
+
+            out.write(reinterpret_cast<const char*>(Frecs.data()), Frecs.size() * sizeof(int));
+
+
+            size_t vocab_size = Vocab.size();
+            out.write(reinterpret_cast<const char*>(&vocab_size), sizeof(size_t));
+            
+            for (const auto& pair : Vocab) {
+               
+                size_t str_len = pair.first.size();
+                out.write(reinterpret_cast<const char*>(&str_len), sizeof(size_t)); 
+                out.write(pair.first.data(), str_len);                               
+                out.write(reinterpret_cast<const char*>(&pair.second), sizeof(int)); 
+            }
+
+
+            
+            out.close();
+        }
+
+      
+        void load_model(const std::string& filename) {
+            std::ifstream in(filename, std::ios::binary);
+            if (!in) {
+                throw std::runtime_error("Error: No se pudo abrir el archivo para leer: " + filename);
+            }
+
+
+            in.read(reinterpret_cast<char*>(&dim_V), sizeof(int));
+            in.read(reinterpret_cast<char*>(&dim_N), sizeof(int));
+            in.read(reinterpret_cast<char*>(&Iters), sizeof(int));
+            in.read(reinterpret_cast<char*>(&subsampling), sizeof(bool));
+
+            W1.resize(dim_V * dim_N);
+            in.read(reinterpret_cast<char*>(W1.data()), W1.size() * sizeof(float));
+
+            W2.resize(dim_N * dim_V);
+            in.read(reinterpret_cast<char*>(W2.data()), W2.size() * sizeof(float));
+
+       
+            Frecs.resize(dim_V);
+            in.read(reinterpret_cast<char*>(Frecs.data()), Frecs.size() * sizeof(int));
+
+            size_t vocab_size;
+            in.read(reinterpret_cast<char*>(&vocab_size), sizeof(size_t));
+            Vocab.clear();
+            
+            for (size_t i = 0; i < vocab_size; ++i) {
+                size_t str_len;
+                in.read(reinterpret_cast<char*>(&str_len), sizeof(size_t));
+                
+                std::string key(str_len, '\0'); 
+                in.read(&key[0], str_len);      
+                
+                int value;
+                in.read(reinterpret_cast<char*>(&value), sizeof(int));
+                
+                Vocab[key] = value;
+            }
+
+
+            Embeddings.assign(dim_V, std::vector<float>(dim_N, 0.0f));
+            for (int i = 0; i < dim_V; ++i) {
+                for (int j = 0; j < dim_N; ++j) {
+                    Embeddings[i][j] = W1[i * dim_N + j];
+                }
+            }
+
+            in.close();
+        }
 
         float cosine_similarity(IDType word1, IDType word2) const {
             std::vector<float> emb1 = get_embedding(word1);
@@ -87,7 +175,7 @@ class SkipGram{
 
         void build_vocab(const std::vector<IDType>& vocab, const std::vector<int>& frecs) {
             if (vocab.size() != frecs.size()) {
-                throw std::invalid_argument("El tamaño del vocabulario y de las frecuencias debe coincidir.");
+                throw std::invalid_argument("Vocab length and frecs length must match");
             }
 
             Vocab.clear();

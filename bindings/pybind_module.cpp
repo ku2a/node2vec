@@ -13,23 +13,25 @@ using MySkipGram = SkipGram<std::string>;
 PYBIND11_MODULE(node2vec_cpp, m) {
     py::class_<MyGraph>(m, "Graph")
         .def(py::init<>())
-        .def("get_adyacent", &MyGraph::get_adyacent)
-        .def("add_vertex", &MyGraph::add_vertex)
-        .def("add_edge", &MyGraph::add_edge)
-        .def("remove_vertex", &MyGraph::remove_vertex)
-        .def("remove_edge", &MyGraph::remove_edge)
-        .def("get_walks", &MyGraph::get_walks)
+        .def("get_adyacent", &MyGraph::get_adyacent, py::arg("ID"))
+        .def("add_vertex", &MyGraph::add_vertex, py::arg("ID"), py::arg("content"))
+        .def("add_edge", &MyGraph::add_edge, py::arg("vertex1"), py::arg("vertex2"), py::arg("weight"))
+        .def("remove_vertex", &MyGraph::remove_vertex, py::arg("ID"))
+        .def("remove_edge", &MyGraph::remove_edge, py::arg("vertex1"), py::arg("vertex2"))
+        .def("get_walks", &MyGraph::get_walks, py::arg("num_walks"), py::arg("num_steps"), py::arg("p"), py::arg("q"))
         .def("get_nodes", &MyGraph::get_nodes)
         .def("get_degrees", &MyGraph::get_degrees);
 
     py::class_<MySkipGram>(m, "SkipGram")
-        .def(py::init<int, bool>())
-        .def("build_vocab", py::overload_cast<const std::vector<std::string>&>(&MySkipGram::build_vocab))
-        .def("build_vocab", py::overload_cast<const std::vector<std::string>&, const std::vector<int>&>(&MySkipGram::build_vocab))
-        .def("train", &MySkipGram::train)
+        .def(py::init<int, bool>(), py::arg("N") = 300, py::arg("subsampling") = false)
+        .def("build_vocab", py::overload_cast<const std::vector<std::string>&>(&MySkipGram::build_vocab), py::arg("corpus"))
+        .def("build_vocab", py::overload_cast<const std::vector<std::string>&, const std::vector<int>&>(&MySkipGram::build_vocab), py::arg("vocab"), py::arg("frecs"))
+        .def("train", &MySkipGram::train, py::arg("walks"), py::arg("epochs"), py::arg("K"), py::arg("C"), py::arg("starting_alpha"), py::arg("verbose"))
         .def("clear", &MySkipGram::clear)
-        .def("get_embedding", &MySkipGram::get_embedding)
+        .def("get_embedding", &MySkipGram::get_embedding, py::arg("word"))
         .def("get_embeddings", &MySkipGram::get_embeddings)
-        .def("cosine_similarity", &MySkipGram::cosine_similarity)
-        .def("most_similar", &MySkipGram::most_similar);
+        .def("cosine_similarity", &MySkipGram::cosine_similarity, py::arg("word1"), py::arg("word2"))
+        .def("save_model", &MySkipGram::save_model, py::arg("filename"))
+        .def("load_model", &MySkipGram::load_model, py::arg("filename"))
+        .def("most_similar", &MySkipGram::most_similar, py::arg("word"), py::arg("top_k") = 5);
 }

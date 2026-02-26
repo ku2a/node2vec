@@ -22,7 +22,11 @@ Running the following commands allows `uv` to read the project configuration fil
 ```bash
 git clone https://github.com/ku2a/node2vec
 cd node2vec
-uv sync
+
+uv sync  
+# (Optional) To run main.py, include the ML and visualization dependencies:
+# uv sync --extra ML
+
 sudo apt update
 sudo apt install python3-dev                                            
 ```
@@ -69,6 +73,14 @@ cd ..
 
 ---
 
+If you are using vscode or a similar IDE make sure to add typings/ to the analysis path to get the recommendations on the functions and parameters, on vscode yo might:
+```json
+{
+    "python.analysis.extraPaths": [
+        "./typings"
+    ]
+}
+```
 
 ## Examples
 

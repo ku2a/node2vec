@@ -13,8 +13,8 @@ This project uses `uv` for Python environment and dependency management, along w
 Running the following commands allows `uv` to read the project configuration files, automatically create the virtual environment, and install the required libraries.
 
 ```bash
-git clone <YOUR_REPOSITORY_URL>
-cd GRAPH
+git clone <https://github.com/ku2a/node2vec>
+cd node2vec
 uv sync
 
 ```

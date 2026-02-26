@@ -1,3 +1,5 @@
+This is an implementation of the node2vec algorithm programmed from scratch using C++ and no external libraries, as well as the graph implementation. It is fast and optimized using subsampling and Negative-sampling. We have used the pybind11 library to transform the code for python usage.
+
 ## Installation and Build
 
 This project uses `uv` for Python environment and dependency management, along with `CMake` to compile the native C++ library and the Python binding module using `pybind11`.
@@ -62,3 +64,21 @@ cd ..
 
 ---
 
+
+## Examples
+
+We used as a simple example a graph with the european countries.
+
+### Training Loss
+This is a fairly simple graph, requiring very few epochs.
+
+![Training Loss Curve](outputs/figures/loss_curve.png)
+
+### 2D Projections of European Countries
+To evaluate how well the algorithm captures the topological and structural relationships of the graph, we reduced the dimensionality of the learned embeddings to 2D. Countries that share similar structural contexts in the graph appear clustered together. 
+
+**PCA Projection:**
+![Europe Map PCA](outputs/figures/europe_map_pca.png)
+
+**t-SNE Projection:**
+![Europe Map t-SNE](outputs/figures/europe_map_tsne.png)

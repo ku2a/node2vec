@@ -4,13 +4,13 @@ import os
 build_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "build"))
 sys.path.append(build_path)
 import node2vec_cpp
-
+from pathlib import Path
 import pandas as pd
 import matplotlib.pyplot as plt
 from sklearn.decomposition import PCA
 from  sklearn.manifold import TSNE
-
-
+BASE_DIR = Path(__file__).resolve().parent.parent
+OUTPUT_DIR = BASE_DIR / "outputs" / "figures"
 graph = node2vec_cpp.Graph()
 
 countries = [
@@ -148,7 +148,7 @@ plt.title("Europe visualization with TSNE", fontsize=16, fontweight='bold')
 plt.xlabel("Componente Principal 1")
 plt.ylabel("Componente Principal 2")
 plt.grid(True, linestyle='--', alpha=0.5)
-
+#plt.savefig(OUTPUT_DIR/"europe_map_tsne.png",dpi=300, bbox_inches='tight')
 
 plt.show()
 plt.figure(figsize=(14, 10))
@@ -174,4 +174,13 @@ plt.title("Europe visualization with PCA", fontsize=16, fontweight='bold')
 plt.xlabel("Componente Principal 1")
 plt.ylabel("Componente Principal 2")
 plt.grid(True, linestyle='--', alpha=0.5)
+#plt.savefig(OUTPUT_DIR/"europe_map_pca.png",dpi=300, bbox_inches='tight')
+plt.show()
+
+plt.figure(figsize=(14, 10))
+plt.title("Loss curve")
+plt.xlabel("Epochs")
+plt.ylabel("Loss")
+plt.plot(losses)
+plt.savefig(OUTPUT_DIR/"loss_curve",dpi=300, bbox_inches='tight')
 plt.show()

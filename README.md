@@ -4,7 +4,7 @@ This project uses `uv` for Python environment and dependency management, along w
 
 ### 1. Prerequisites
 
-* `uv`
+* `uv` (you can any other python env)
 * `cmake`
 * A C++17 compatible C++ compiler
 
@@ -13,10 +13,11 @@ This project uses `uv` for Python environment and dependency management, along w
 Running the following commands allows `uv` to read the project configuration files, automatically create the virtual environment, and install the required libraries.
 
 ```bash
-git clone <https://github.com/ku2a/node2vec>
+git clone https://github.com/ku2a/node2vec
 cd node2vec
 uv sync
-
+sudo apt update
+sudo apt install python3-dev                                            
 ```
 
 ### 3. Create the build directory

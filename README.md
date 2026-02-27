@@ -73,7 +73,7 @@ cd ..
 
 ---
 
-If you are using vscode or a similar IDE make sure to add typings/ to the analysis path to get the recommendations on the functions and parameters, on vscode yo might:
+If you are using vscode or a similar IDE make sure to add typings/ to the analysis path to get the recommendations on the functions and parameters, on vscode you might add this to your settings.json:
 ```json
 {
     "python.analysis.extraPaths": [

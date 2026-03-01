@@ -6,7 +6,7 @@
 #include <unordered_map>
 #include <vector>
 #include <random>
-
+#include <omp.h>
 
 struct Edge {
   float weight;
@@ -146,14 +146,23 @@ public:
         }
     }
 
-    std::vector<std::vector<IDType>> walk_list;
-    walk_list.reserve(nodes.size() * num_walks);
+    int num_active_nodes = nodes.size();
+    std::vector<std::vector<IDType>> walk_list(num_active_nodes * num_walks);
 
-    for (int walk_iter = 0; walk_iter < num_walks; ++walk_iter) {
-        std::shuffle(nodes.begin(), nodes.end(), gen);
-        
-        for (int node : nodes) {
-            walk_list.push_back(get_random_walk(node, num_steps));
+    #pragma omp parallel
+    {
+        std::mt19937 local_gen(std::random_device{}() ^ omp_get_thread_num());
+
+        #pragma omp for schedule(dynamic)
+        for (int walk_iter = 0; walk_iter < num_walks; ++walk_iter) {
+            std::vector<int> shuffled_nodes = nodes;
+            std::shuffle(shuffled_nodes.begin(), shuffled_nodes.end(), local_gen);
+            
+            for (int n = 0; n < num_active_nodes; ++n) {
+                int node = shuffled_nodes[n];
+                int index = walk_iter * num_active_nodes + n;
+                walk_list[index] = get_random_walk(node, num_steps, local_gen);
+            }
         }
     }
 
@@ -240,6 +249,7 @@ private:
     node_alias.resize(num_nodes);
     edge_alias.resize(num_nodes);
 
+    #pragma omp parallel for schedule(dynamic)
     for (int i = 0; i < num_nodes; ++i) {
         if (std::find(free.begin(), free.end(), i) != free.end()) continue;
 
@@ -275,7 +285,7 @@ private:
     }
   }
 
-  std::vector<IDType> get_random_walk(int node, int num_steps) const {
+  std::vector<IDType> get_random_walk(int node, int num_steps, std::mt19937& local_gen) const {
     if (Adyacencias[node].empty()) return {};
 
     std::vector<IDType> walk;
@@ -295,14 +305,14 @@ private:
       if (iter == 0 || prev_idx == -1) {
           const AliasTable& alias = node_alias[pos];
           int K = alias.J.size();
-          int k = int_dist(gen) % K;
-          float r = float_dist(gen);
+          int k = int_dist(local_gen) % K;
+          float r = float_dist(local_gen);
           next_idx = (r < alias.q[k]) ? k : alias.J[k];
       } else {
           const AliasTable& alias = edge_alias[pos][prev_idx];
           int K = alias.J.size();
-          int k = int_dist(gen) % K;
-          float r = float_dist(gen);
+          int k = int_dist(local_gen) % K;
+          float r = float_dist(local_gen);
           next_idx = (r < alias.q[k]) ? k : alias.J[k];
       }
 

@@ -64,15 +64,14 @@ for src, dst in edges:
 
 
 modelo = node2vec_cpp.SkipGram(100, False)
-walks = graph.get_walks(10, 15, 1.0, 1.0)
-epochs = 10
+walks = graph.get_walks(15, 10, 1.0, 1.0)
+epochs = 15
 K = 5
 C = 3           
 alpha = 0.025 
 modelo.build_vocab(graph.get_nodes(), graph.get_degrees())
 losses = modelo.train(walks, epochs, K, C, alpha, True)
 embeddings = pd.DataFrame(modelo.get_embeddings())
-
 
 pca = PCA(n_components=2)
 embeddings_pca = pca.fit_transform(embeddings)

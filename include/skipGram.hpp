@@ -5,6 +5,8 @@
 #include <cmath>
 #include <fstream>
 #include <stdexcept>
+#include <omp.h>
+#include <atomic>
 
 
 
@@ -107,21 +109,26 @@ class SkipGram{
         }
 
         float cosine_similarity(IDType word1, IDType word2) const {
-            std::vector<float> emb1 = get_embedding(word1);
-            std::vector<float> emb2 = get_embedding(word2);
+            auto it1 = Vocab.find(word1);
+            auto it2 = Vocab.find(word2);
 
-            if (emb1.empty() || emb2.empty()) {
+            if (it1 == Vocab.end() || it2 == Vocab.end()) {
                 return -2.0f; 
             }
+
+            int idx1 = it1->second * dim_N;
+            int idx2 = it2->second * dim_N;
 
             float dot_product = 0.0f;
             float norm1 = 0.0f;
             float norm2 = 0.0f;
 
-            for (size_t i = 0; i < emb1.size(); ++i) {
-                dot_product += emb1[i] * emb2[i];
-                norm1 += emb1[i] * emb1[i];
-                norm2 += emb2[i] * emb2[i];
+            for (int i = 0; i < dim_N; ++i) {
+                float v1 = W1[idx1 + i];
+                float v2 = W1[idx2 + i];
+                dot_product += v1 * v2;
+                norm1 += v1 * v1;
+                norm2 += v2 * v2;
             }
 
             if (norm1 == 0.0f || norm2 == 0.0f) return 0.0f;
@@ -130,26 +137,46 @@ class SkipGram{
         }
 
         std::vector<std::pair<IDType, float>> most_similar(IDType word, int top_k = 5) const {
-            std::vector<float> target_emb = get_embedding(word);
-            if (target_emb.empty()) return {};
-
+            auto it_target = Vocab.find(word);
+            if (it_target == Vocab.end()) return {};
+            
+            int target_idx = it_target->second * dim_N;
+            float norm_target = 0.0f;
+            
+            for (int i = 0; i < dim_N; ++i) {
+                norm_target += W1[target_idx + i] * W1[target_idx + i];
+            }
+            
+            if (norm_target == 0.0f) return {};
+            
+            float inv_norm_target = 1.0f / std::sqrt(norm_target);
             std::vector<std::pair<IDType, float>> similarities;
             similarities.reserve(Vocab.size());
 
             for (const auto& pair : Vocab) {
-                if (pair.first == word) continue; 
-                
-                float sim = cosine_similarity(word, pair.first);
-                similarities.push_back({pair.first, sim});
+                if (pair.second == it_target->second) continue;
+
+                int w_idx = pair.second * dim_N;
+                float dot_product = 0.0f;
+                float norm_w = 0.0f;
+
+                for (int i = 0; i < dim_N; ++i) {
+                    float val = W1[w_idx + i];
+                    dot_product += W1[target_idx + i] * val;
+                    norm_w += val * val;
+                }
+
+                if (norm_w > 0.0f) {
+                    float sim = (dot_product * inv_norm_target) / std::sqrt(norm_w);
+                    similarities.push_back({pair.first, sim});
+                }
             }
 
-            
             std::sort(similarities.begin(), similarities.end(), 
                 [](const std::pair<IDType, float>& a, const std::pair<IDType, float>& b) {
                     return a.second > b.second;
                 });
 
-            
             if (similarities.size() > static_cast<size_t>(top_k)) {
                 similarities.resize(top_k);
             }
@@ -194,126 +221,140 @@ class SkipGram{
        
 
 
-    std::vector<float> train(std::vector<std::vector<IDType>>& walks, int epochs, int K, int C, float starting_alpha, bool verbose) {
-        std::vector<float> mean_losses;
-        std::uniform_int_distribution<int> window_dis(1, C);
-        std::uniform_real_distribution<float> prob_dis(0.0f, 1.0f);
-        std::uniform_int_distribution<int> unigram_dis(0, table_size - 1);
-        std::uniform_int_distribution<int> fallback_dis(0, dim_V - 1);
 
-        long long total_words = 0;
-        for (const auto& walk : walks) {
-            total_words += walk.size();
-        }
-        long long total_iters = epochs * total_words;
-        long long current_iter = 0;
 
-        std::vector<float> p_discard(dim_V, 0.0f);
-        if (subsampling && total_words > 0) {
-            const float t = 1e-5f;
-            for (int i = 0; i < dim_V; i++) {
-                float fw = static_cast<float>(Frecs[i]) / static_cast<float>(total_words);
-                float p_keep = (std::sqrt(fw / t) + 1.0f) * (t / fw);
-                p_discard[i] = std::max(0.0f, 1.0f - p_keep);
-            }
-        }
-
-        std::vector<float> out(K + 1, 0.0f);
-        std::vector<int> negatives(K + 1, 0);
-        std::vector<float> diff_W1(dim_N, 0.0f);
-
-        for (int epoch = 0; epoch < epochs; ++epoch) {
+        std::vector<float> train(std::vector<std::vector<IDType>>& walks, int epochs, int K, int C, float starting_alpha, bool verbose) {
+            std::vector<float> mean_losses;
             
-            std::shuffle(walks.begin(), walks.end(), gen); 
+            long long total_words = 0;
+            for (const auto& walk : walks) {
+                total_words += walk.size();
+            }
+            long long total_iters = epochs * total_words;
+            std::atomic<long long> current_iter{0};
 
-            float epoch_loss = 0.0f;
-            int iter_count = 0;
+            std::vector<float> p_discard(dim_V, 0.0f);
+            if (subsampling && total_words > 0) {
+                const float t = 1e-5f;
+                for (int i = 0; i < dim_V; i++) {
+                    float fw = static_cast<float>(Frecs[i]) / static_cast<float>(total_words);
+                    float p_keep = (std::sqrt(fw / t) + 1.0f) * (t / fw);
+                    p_discard[i] = std::max(0.0f, 1.0f - p_keep);
+                }
+            }
 
-            for (const auto& current_walk : walks) {
-                int walk_size = static_cast<int>(current_walk.size());
+            for (int epoch = 0; epoch < epochs; ++epoch) {
+                
+                std::shuffle(walks.begin(), walks.end(), gen); 
 
-                for (int i = 0; i < walk_size; i++) {
-                    
-                    float alpha = starting_alpha * (1.0f - static_cast<float>(current_iter) / total_iters);
-                    if (alpha < starting_alpha * 0.0001f) alpha = starting_alpha * 0.0001f;
-                    current_iter++;
+                float epoch_loss = 0.0f;
+                int iter_count = 0;
 
-                    auto it_i = Vocab.find(current_walk[i]);
-                    if (it_i == Vocab.end()) continue; 
-                    int word_idx = it_i->second;
+                #pragma omp parallel reduction(+:epoch_loss, iter_count)
+                {
+                    std::mt19937 local_gen(std::random_device{}() ^ omp_get_thread_num());
+                    std::uniform_int_distribution<int> window_dis(1, C);
+                    std::uniform_real_distribution<float> prob_dis(0.0f, 1.0f);
+                    std::uniform_int_distribution<int> unigram_dis(0, table_size - 1);
+                    std::uniform_int_distribution<int> fallback_dis(0, dim_V - 1);
 
-                    if (subsampling && prob_dis(gen) < p_discard[word_idx]) {
-                        continue; 
-                    }
+                    std::vector<float> out(K + 1, 0.0f);
+                    std::vector<int> negatives(K + 1, 0);
+                    std::vector<float> diff_W1(dim_N, 0.0f);
 
-                    int R = window_dis(gen); 
-                    int left = std::max(0, i - R);
-                    int right = std::min(walk_size, i + R + 1);
+                    #pragma omp for schedule(dynamic)
+                    for (size_t w = 0; w < walks.size(); ++w) {
+                        const auto& current_walk = walks[w];
+                        int walk_size = static_cast<int>(current_walk.size());
+                        long long local_iter_increment = 0;
 
-                    for (int j = left; j < right; j++) {
-                        if (j == i) continue;
-
-                        auto it_j = Vocab.find(current_walk[j]);
-                        if (it_j == Vocab.end()) continue;
-                        int target_idx = it_j->second;
-
-                        negatives[0] = target_idx; 
-                        for (int k = 1; k <= K; ++k) {
-                            int random_idx = unigram_dis(gen);
-                            int negative_word = unigram_table[random_idx];
-                            if (negative_word == target_idx) {
-                                negative_word = fallback_dis(gen);
-                            }
-                            negatives[k] = negative_word;
-                        }
-
-                        for (int n = 0; n <= K; ++n) {
-                            int target = negatives[n];
-                            float sum = 0.0f;
-                            for (int d = 0; d < dim_N; ++d) {
-                                sum += W1[word_idx * dim_N + d] * W2[target * dim_N + d];
-                            }
-                            out[n] = 1.0f / (1.0f + std::exp(-sum)); 
-                        }
-
-                        float epsilon = 1e-7f;
-                        epoch_loss -= std::log(std::max(out[0], epsilon)); 
-                        for (int k = 1; k <= K; ++k) {
-                            epoch_loss -= std::log(std::max(1.0f - out[k], epsilon));
-                        }
-                        iter_count++;
-                        Iters++;
-
-                        std::fill(diff_W1.begin(), diff_W1.end(), 0.0f);
-                        
-                        for (int n = 0; n <= K; ++n) {
-                            int target = negatives[n];
-                            float err = (n == 0) ? (out[n] - 1.0f) : out[n];
+                        for (int i = 0; i < walk_size; i++) {
                             
-                            for (int d = 0; d < dim_N; ++d) {
-                                diff_W1[d] += err * W2[target * dim_N + d];
-                                W2[target * dim_N + d] -= alpha * err * W1[word_idx * dim_N + d];
+                            long long current_iter_val = current_iter.load(std::memory_order_relaxed);
+                            float alpha = starting_alpha * (1.0f - static_cast<float>(current_iter_val) / total_iters);
+                            if (alpha < starting_alpha * 0.0001f) alpha = starting_alpha * 0.0001f;
+                            
+                            local_iter_increment++;
+
+                            auto it_i = Vocab.find(current_walk[i]);
+                            if (it_i == Vocab.end()) continue; 
+                            int word_idx = it_i->second;
+
+                            if (subsampling && prob_dis(local_gen) < p_discard[word_idx]) {
+                                continue; 
+                            }
+
+                            int R = window_dis(local_gen); 
+                            int left = std::max(0, i - R);
+                            int right = std::min(walk_size, i + R + 1);
+
+                            for (int j = left; j < right; j++) {
+                                if (j == i) continue;
+
+                                auto it_j = Vocab.find(current_walk[j]);
+                                if (it_j == Vocab.end()) continue;
+                                int target_idx = it_j->second;
+
+                                negatives[0] = target_idx; 
+                                for (int k = 1; k <= K; ++k) {
+                                    int random_idx = unigram_dis(local_gen);
+                                    int negative_word = unigram_table[random_idx];
+                                    if (negative_word == target_idx) {
+                                        negative_word = fallback_dis(local_gen);
+                                    }
+                                    negatives[k] = negative_word;
+                                }
+
+                                for (int n = 0; n <= K; ++n) {
+                                    int target = negatives[n];
+                                    float sum = 0.0f;
+                                    for (int d = 0; d < dim_N; ++d) {
+                                        sum += W1[word_idx * dim_N + d] * W2[target * dim_N + d];
+                                    }
+                                    out[n] = 1.0f / (1.0f + std::exp(-sum)); 
+                                }
+
+                                float epsilon = 1e-7f;
+                                epoch_loss -= std::log(std::max(out[0], epsilon)); 
+                                for (int k = 1; k <= K; ++k) {
+                                    epoch_loss -= std::log(std::max(1.0f - out[k], epsilon));
+                                }
+                                iter_count++;
+
+                                std::fill(diff_W1.begin(), diff_W1.end(), 0.0f);
+                                
+                                for (int n = 0; n <= K; ++n) {
+                                    int target = negatives[n];
+                                    float err = (n == 0) ? (out[n] - 1.0f) : out[n];
+                                    
+                                    for (int d = 0; d < dim_N; ++d) {
+                                        diff_W1[d] += err * W2[target * dim_N + d];
+                                        W2[target * dim_N + d] -= alpha * err * W1[word_idx * dim_N + d];
+                                    }
+                                }
+
+                                for (int d = 0; d < dim_N; ++d) {
+                                    W1[word_idx * dim_N + d] -= alpha * diff_W1[d];
+                                }
                             }
                         }
-
-                        for (int d = 0; d < dim_N; ++d) {
-                            W1[word_idx * dim_N + d] -= alpha * diff_W1[d];
-                        }
+                        current_iter.fetch_add(local_iter_increment, std::memory_order_relaxed);
+                    }
+                } 
+                
+                Iters += iter_count;
+                
+                if (iter_count > 0) {
+                    float avg = epoch_loss / static_cast<float>(iter_count);
+                    mean_losses.push_back(avg);
+                    if (verbose) {
+                        std::cout << "Epoch " << (epoch + 1) << "/" << epochs << " loss: " << avg << std::endl;
                     }
                 }
             } 
-            
-            if (iter_count > 0) {
-                float avg = epoch_loss / static_cast<float>(iter_count);
-                mean_losses.push_back(avg);
-                if (verbose) {
-                    std::cout << "Epoch " << (epoch + 1) << "/" << epochs << " loss: " << avg << std::endl;
-                }
-            }
-        } 
 
-        return mean_losses;
-    }
+            return mean_losses;
+        }
 
         void clear(){
             /* Clear the current weights */
@@ -373,26 +414,21 @@ class SkipGram{
             double train_words_pow = 0.0;
             const double power = 0.75;
 
-            
             for (int frec : Frecs) {
                 train_words_pow += std::pow(frec, power);
             }
 
-           
             int vocab_idx = 0;
-            double d1 = std::pow(Frecs[vocab_idx], power) / train_words_pow;
+            double current_prob = std::pow(Frecs[vocab_idx], power) / train_words_pow;
             
             for (int a = 0; a < table_size; a++) {
                 unigram_table[a] = vocab_idx;
                 
-
-                if (a / (double)table_size > d1) {
+                double target = (double)(a + 1) / table_size;
+                
+                while (target > current_prob && vocab_idx < dim_V - 1) {
                     vocab_idx++;
-
-                    if (vocab_idx >= dim_V) {
-                        vocab_idx = dim_V - 1; 
-                    }
-                    d1 += std::pow(Frecs[vocab_idx], power) / train_words_pow;
+                    current_prob += std::pow(Frecs[vocab_idx], power) / train_words_pow;
                 }
             }
         }

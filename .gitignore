@@ -5,4 +5,6 @@ build/*
 *.so
 *.zip
 datasets/*
+outputs/embeddings/*
+
 models/*

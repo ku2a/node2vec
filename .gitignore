@@ -3,3 +3,5 @@ salida
 .venv
 build/*
 *.so
+*.zip
+datasets/*

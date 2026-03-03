@@ -50,7 +50,7 @@ public:
 
   void add_vertex(IDType ID, ContentType content) {
     if (IDs.find(ID) != IDs.end()) {
-      printf("Vertex already in graph");
+      printf("Vertex already in graph\n");
       return;
     }
     int indice;
@@ -71,11 +71,11 @@ public:
 
   void add_edge(IDType vertex1, IDType vertex2, float weight) {
     if (IDs.find(vertex1) == IDs.end()) {
-      printf("Vertex1 not foud in graph");
+      printf("Vertex1 not foud in graph\n");
       return;
     }
     if (IDs.find(vertex2) == IDs.end()) {
-      printf("Vertex2 not found in graph");
+      printf("Vertex2 not found in graph\n");
       return;
     }
     int id1 = IDs[vertex1];
@@ -83,7 +83,7 @@ public:
     Edge edge1{weight, id1};
     Edge edge2{weight, id2};
     if (std::find(Adyacencias[id1].begin(), Adyacencias[id1].end(), edge2) != Adyacencias[id1].end()) {
-      printf("Edge already in graph");
+      printf("Edge already in graph\n");
       return;
     }
     Adyacencias[id1].push_back(edge2);
@@ -92,7 +92,7 @@ public:
 
   void remove_vertex(IDType ID) {
     if (IDs.find(ID) == IDs.end()) {
-      printf("ID not found in graph");
+      printf("ID not found in graph\n");
       return;
     }
     int index = IDs[ID];
@@ -116,7 +116,7 @@ public:
 
   void remove_edge(IDType vertex1, IDType vertex2) {
     if (IDs.find(vertex1) == IDs.end() || IDs.find(vertex2) == IDs.end()) {
-      printf("Vertex not found in graph");
+      printf("Vertex not found in graph\n");
       return;
     }
     int id1 = IDs[vertex1];
@@ -137,7 +137,7 @@ public:
       }
     }
     if (!found) {
-      printf("Edge not found in graph");
+      printf("Edge not found in graph\n");
     }
   }
 

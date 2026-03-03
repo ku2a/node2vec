@@ -210,9 +210,14 @@ class SkipGram{
 
         template <typename ContentType>
         std::vector<float> train(Graph<IDType, ContentType>& graph, int epochs, int walk_length, float p, float q, int K, int C, float starting_alpha, bool verbose, int batch_size = 1024) {
-            std::vector<float> mean_losses;
             
-            long long total_words = static_cast<long long>(graph.get_nodes().size()) * epochs * walk_length;
+            if (dim_V <= 0) {
+                throw std::runtime_error("Error: Vocabulario vacio.");
+            }
+
+            std::vector<float> mean_losses;
+            long long num_nodes = static_cast<long long>(graph.get_nodes().size());
+            long long total_words = num_nodes * epochs * walk_length;
             std::atomic<long long> shared_iter{0};
 
             std::vector<float> p_discard(dim_V, 0.0f);
@@ -227,119 +232,127 @@ class SkipGram{
                 }
             }
 
-            auto iter = graph.get_walks_iter(epochs, walk_length, p, q);
+            for (int epoch = 0; epoch < epochs; ++epoch) {
+                auto iter = graph.get_walks_iter(1, walk_length, p, q);
+                
+                float epoch_loss = 0.0f;
+                long long epoch_iter_count = 0;
 
-            while (true) {
-                std::vector<IDType> flat_walks;
-                try {
-                    flat_walks = iter.next_batch(batch_size);
-                } catch (const std::runtime_error&) {
-                    break;
+                while (true) {
+                    std::vector<IDType> flat_walks;
+                    try {
+                        flat_walks = iter.next_batch(batch_size);
+                    } catch (const std::runtime_error&) {
+                        break;
+                    }
+
+                    int num_walks = flat_walks.size() / walk_length;
+                    float batch_loss = 0.0f;
+                    int iter_count = 0;
+
+                    #pragma omp parallel reduction(+:batch_loss, iter_count)
+                    {
+                        std::mt19937 local_gen(std::random_device{}() ^ omp_get_thread_num());
+                        std::uniform_int_distribution<int> window_dis(1, std::max(1, C));
+                        std::uniform_real_distribution<float> prob_dis(0.0f, 1.0f);
+                        std::uniform_int_distribution<int> unigram_dis(0, table_size - 1);
+                        std::uniform_int_distribution<int> fallback_dis(0, std::max(0, dim_V - 1));
+
+                        std::vector<float> out(K + 1, 0.0f);
+                        std::vector<int> negatives(K + 1, 0);
+                        std::vector<float> diff_W1(dim_N, 0.0f);
+
+                        #pragma omp for schedule(dynamic)
+                        for (int w = 0; w < num_walks; ++w) {
+                            int walk_start = w * walk_length;
+                            long long local_iter_increment = 0;
+
+                            for (int i = 0; i < walk_length; i++) {
+                                long long current_iter_val = shared_iter.load(std::memory_order_relaxed);
+                                float alpha = starting_alpha * (1.0f - static_cast<float>(current_iter_val) / total_words);
+                                if (alpha < starting_alpha * 0.0001f) alpha = starting_alpha * 0.0001f;
+                                
+                                local_iter_increment++;
+
+                                IDType current_word = flat_walks[walk_start + i];
+                                auto it_i = Vocab.find(current_word);
+                                if (it_i == Vocab.end()) continue; 
+                                int word_idx = it_i->second;
+
+                                if (subsampling && prob_dis(local_gen) < p_discard[word_idx]) {
+                                    continue; 
+                                }
+
+                                int R = window_dis(local_gen); 
+                                int left = std::max(0, i - R);
+                                int right = std::min(walk_length, i + R + 1);
+
+                                for (int j = left; j < right; j++) {
+                                    if (j == i) continue;
+
+                                    auto it_j = Vocab.find(flat_walks[walk_start + j]);
+                                    if (it_j == Vocab.end()) continue;
+                                    int target_idx = it_j->second;
+
+                                    negatives[0] = target_idx; 
+                                    for (int k = 1; k <= K; ++k) {
+                                        int random_idx = unigram_dis(local_gen);
+                                        int negative_word = unigram_table[random_idx];
+                                        if (negative_word == target_idx) {
+                                            negative_word = fallback_dis(local_gen);
+                                        }
+                                        negatives[k] = negative_word;
+                                    }
+
+                                    for (int n = 0; n <= K; ++n) {
+                                        int target = negatives[n];
+                                        float sum = 0.0f;
+                                        for (int d = 0; d < dim_N; ++d) {
+                                            sum += W1[word_idx * dim_N + d] * W2[target * dim_N + d];
+                                        }
+                                        out[n] = 1.0f / (1.0f + std::exp(-sum)); 
+                                    }
+
+                                    float epsilon = 1e-7f;
+                                    batch_loss -= std::log(std::max(out[0], epsilon)); 
+                                    for (int k = 1; k <= K; ++k) {
+                                        batch_loss -= std::log(std::max(1.0f - out[k], epsilon));
+                                    }
+                                    iter_count++;
+
+                                    std::fill(diff_W1.begin(), diff_W1.end(), 0.0f);
+                                    
+                                    for (int n = 0; n <= K; ++n) {
+                                        int target = negatives[n];
+                                        float err = (n == 0) ? (out[n] - 1.0f) : out[n];
+                                        
+                                        for (int d = 0; d < dim_N; ++d) {
+                                            diff_W1[d] += err * W2[target * dim_N + d];
+                                            W2[target * dim_N + d] -= alpha * err * W1[word_idx * dim_N + d];
+                                        }
+                                    }
+
+                                    for (int d = 0; d < dim_N; ++d) {
+                                        W1[word_idx * dim_N + d] -= alpha * diff_W1[d];
+                                    }
+                                }
+                            }
+                            shared_iter.fetch_add(local_iter_increment, std::memory_order_relaxed);
+                        }
+                    } 
+                    
+                    epoch_loss += batch_loss;
+                    epoch_iter_count += iter_count;
                 }
 
-                int num_walks = flat_walks.size() / walk_length;
-                float batch_loss = 0.0f;
-                int iter_count = 0;
-
-                #pragma omp parallel reduction(+:batch_loss, iter_count)
-                {
-                    std::mt19937 local_gen(std::random_device{}() ^ omp_get_thread_num());
-                    std::uniform_int_distribution<int> window_dis(1, C);
-                    std::uniform_real_distribution<float> prob_dis(0.0f, 1.0f);
-                    std::uniform_int_distribution<int> unigram_dis(0, table_size - 1);
-                    std::uniform_int_distribution<int> fallback_dis(0, dim_V - 1);
-
-                    std::vector<float> out(K + 1, 0.0f);
-                    std::vector<int> negatives(K + 1, 0);
-                    std::vector<float> diff_W1(dim_N, 0.0f);
-
-                    #pragma omp for schedule(dynamic)
-                    for (int w = 0; w < num_walks; ++w) {
-                        int walk_start = w * walk_length;
-                        long long local_iter_increment = 0;
-
-                        for (int i = 0; i < walk_length; i++) {
-                            long long current_iter_val = shared_iter.load(std::memory_order_relaxed);
-                            float alpha = starting_alpha * (1.0f - static_cast<float>(current_iter_val) / total_words);
-                            if (alpha < starting_alpha * 0.0001f) alpha = starting_alpha * 0.0001f;
-                            
-                            local_iter_increment++;
-
-                            IDType current_word = flat_walks[walk_start + i];
-                            auto it_i = Vocab.find(current_word);
-                            if (it_i == Vocab.end()) continue; 
-                            int word_idx = it_i->second;
-
-                            if (subsampling && prob_dis(local_gen) < p_discard[word_idx]) {
-                                continue; 
-                            }
-
-                            int R = window_dis(local_gen); 
-                            int left = std::max(0, i - R);
-                            int right = std::min(walk_length, i + R + 1);
-
-                            for (int j = left; j < right; j++) {
-                                if (j == i) continue;
-
-                                auto it_j = Vocab.find(flat_walks[walk_start + j]);
-                                if (it_j == Vocab.end()) continue;
-                                int target_idx = it_j->second;
-
-                                negatives[0] = target_idx; 
-                                for (int k = 1; k <= K; ++k) {
-                                    int random_idx = unigram_dis(local_gen);
-                                    int negative_word = unigram_table[random_idx];
-                                    if (negative_word == target_idx) {
-                                        negative_word = fallback_dis(local_gen);
-                                    }
-                                    negatives[k] = negative_word;
-                                }
-
-                                for (int n = 0; n <= K; ++n) {
-                                    int target = negatives[n];
-                                    float sum = 0.0f;
-                                    for (int d = 0; d < dim_N; ++d) {
-                                        sum += W1[word_idx * dim_N + d] * W2[target * dim_N + d];
-                                    }
-                                    out[n] = 1.0f / (1.0f + std::exp(-sum)); 
-                                }
-
-                                float epsilon = 1e-7f;
-                                batch_loss -= std::log(std::max(out[0], epsilon)); 
-                                for (int k = 1; k <= K; ++k) {
-                                    batch_loss -= std::log(std::max(1.0f - out[k], epsilon));
-                                }
-                                iter_count++;
-
-                                std::fill(diff_W1.begin(), diff_W1.end(), 0.0f);
-                                
-                                for (int n = 0; n <= K; ++n) {
-                                    int target = negatives[n];
-                                    float err = (n == 0) ? (out[n] - 1.0f) : out[n];
-                                    
-                                    for (int d = 0; d < dim_N; ++d) {
-                                        diff_W1[d] += err * W2[target * dim_N + d];
-                                        W2[target * dim_N + d] -= alpha * err * W1[word_idx * dim_N + d];
-                                    }
-                                }
-
-                                for (int d = 0; d < dim_N; ++d) {
-                                    W1[word_idx * dim_N + d] -= alpha * diff_W1[d];
-                                }
-                            }
-                        }
-                        shared_iter.fetch_add(local_iter_increment, std::memory_order_relaxed);
-                    }
-                } 
+                Iters += epoch_iter_count;
                 
-                Iters += iter_count;
-                
-                if (iter_count > 0) {
-                    float avg_loss = batch_loss / static_cast<float>(iter_count);
+                if (epoch_iter_count > 0) {
+                    float avg_loss = epoch_loss / static_cast<float>(epoch_iter_count);
                     mean_losses.push_back(avg_loss);
                     if (verbose) {
-                        std::cout << "Batch loss: " << avg_loss << " | Progress: " 
-                                  << (static_cast<double>(shared_iter.load()) / total_words) * 100.0 << "%" << std::endl;
+                        std::cout << "Epoch " << (epoch + 1) << "/" << epochs 
+                                  << " | Loss: " << avg_loss << std::endl;
                     }
                 }
             }

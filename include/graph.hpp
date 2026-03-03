@@ -7,6 +7,7 @@
 #include <vector>
 #include <random>
 #include <omp.h>
+#include <stdexcept>
 
 struct Edge {
   float weight;
@@ -21,8 +22,15 @@ struct AliasTable {
   std::vector<float> q;
 };
 
+template <typename IDType, typename ContentType> class WalkGenerator;
+
 template <typename IDType, typename ContentType> class Graph {
+  
+  friend class WalkGenerator<IDType, ContentType>;
+
 public:
+  WalkGenerator<IDType, ContentType> get_walks_iter(int num_walks, int num_steps, float p, float q);
+
   std::vector<IDType> get_adyacent(IDType ID) const {
     auto it = IDs.find(ID);
     if (it == IDs.end()) {
@@ -341,3 +349,80 @@ private:
     return false;
   }
 };
+
+template <typename IDType, typename ContentType>
+class WalkGenerator {
+public:
+    WalkGenerator(Graph<IDType, ContentType>& graph, int num_walks, int num_steps, float p, float q) 
+        : graph_(graph), num_walks_(num_walks), num_steps_(num_steps), 
+          current_walk_(0), current_node_idx_(0) {
+        
+        graph_.preprocess_transition_probs(p, q);
+        
+        std::vector<IDType> reverse_ids = graph_.get_nodes();
+        int nodeCount = reverse_ids.size();
+        nodes_.reserve(nodeCount);
+        
+        for (int i = 0; i < nodeCount; i++) {
+            nodes_.push_back(i);
+        }
+        
+        shuffle_nodes();
+    }
+
+    std::vector<IDType> next_batch(int batch_size) {
+        if (current_walk_ >= num_walks_) {
+            throw std::runtime_error("StopIteration");
+        }
+
+        int remaining_nodes = nodes_.size() - current_node_idx_;
+        int actual_batch_size = std::min(batch_size, remaining_nodes);
+        
+        std::vector<IDType> result(actual_batch_size * num_steps_);
+
+        #pragma omp parallel
+        {
+            std::mt19937 local_gen(std::random_device{}() ^ omp_get_thread_num());
+            
+            #pragma omp for schedule(dynamic)
+            for (int i = 0; i < actual_batch_size; ++i) {
+                int node = nodes_[current_node_idx_ + i];
+                std::vector<IDType> walk = graph_.get_random_walk(node, num_steps_, local_gen);
+                
+                for (int j = 0; j < num_steps_; ++j) {
+                    result[i * num_steps_ + j] = walk[j];
+                }
+            }
+        }
+
+        current_node_idx_ += actual_batch_size;
+        
+        if (current_node_idx_ >= nodes_.size()) {
+            current_node_idx_ = 0;
+            current_walk_++;
+            if (current_walk_ < num_walks_) {
+                shuffle_nodes();
+            }
+        }
+
+        return result;
+    }
+
+private:
+    Graph<IDType, ContentType>& graph_;
+    int num_walks_;
+    int num_steps_;
+    int current_walk_;
+    int current_node_idx_;
+    std::vector<int> nodes_;
+    std::mt19937 gen_{std::random_device{}()};
+
+    void shuffle_nodes() {
+        std::shuffle(nodes_.begin(), nodes_.end(), gen_);
+    }
+};
+
+template <typename IDType, typename ContentType>
+WalkGenerator<IDType, ContentType> Graph<IDType, ContentType>::get_walks_iter(int num_walks, int num_steps, float p, float q) {
+  return WalkGenerator<IDType, ContentType>(*this, num_walks, num_steps, p, q);
+}

@@ -8,8 +8,6 @@
 #include <omp.h>
 #include <atomic>
 
-
-
 template <typename IDType>
 class SkipGram{
     public:
@@ -27,19 +25,15 @@ class SkipGram{
                 throw std::runtime_error("Error: No se pudo abrir el archivo para escribir: " + filename);
             }
 
-
             out.write(reinterpret_cast<const char*>(&dim_V), sizeof(int));
             out.write(reinterpret_cast<const char*>(&dim_N), sizeof(int));
             out.write(reinterpret_cast<const char*>(&Iters), sizeof(int));
             out.write(reinterpret_cast<const char*>(&subsampling), sizeof(bool));
 
-
             out.write(reinterpret_cast<const char*>(W1.data()), W1.size() * sizeof(float));
             out.write(reinterpret_cast<const char*>(W2.data()), W2.size() * sizeof(float));
 
-
             out.write(reinterpret_cast<const char*>(Frecs.data()), Frecs.size() * sizeof(int));
-
 
             size_t vocab_size = Vocab.size();
             out.write(reinterpret_cast<const char*>(&vocab_size), sizeof(size_t));
@@ -51,19 +45,15 @@ class SkipGram{
                 out.write(pair.first.data(), str_len);                               
                 out.write(reinterpret_cast<const char*>(&pair.second), sizeof(int)); 
             }
-
-
             
             out.close();
         }
-
       
         void load_model(const std::string& filename) {
             std::ifstream in(filename, std::ios::binary);
             if (!in) {
                 throw std::runtime_error("Error: No se pudo abrir el archivo para leer: " + filename);
             }
-
 
             in.read(reinterpret_cast<char*>(&dim_V), sizeof(int));
             in.read(reinterpret_cast<char*>(&dim_N), sizeof(int));
@@ -75,7 +65,6 @@ class SkipGram{
 
             W2.resize(dim_N * dim_V);
             in.read(reinterpret_cast<char*>(W2.data()), W2.size() * sizeof(float));
-
        
             Frecs.resize(dim_V);
             in.read(reinterpret_cast<char*>(Frecs.data()), Frecs.size() * sizeof(int));
@@ -96,7 +85,6 @@ class SkipGram{
                 
                 Vocab[key] = value;
             }
-
 
             Embeddings.assign(dim_V, std::vector<float>(dim_N, 0.0f));
             for (int i = 0; i < dim_V; ++i) {
@@ -183,6 +171,7 @@ class SkipGram{
 
             return similarities;
         }
+
         void build_vocab(const std::vector<IDType>& corpus) {
             Vocab.clear();
             Frecs.clear();
@@ -218,39 +207,41 @@ class SkipGram{
 
             update_network_size(Vocab.size());
         }
-       
 
-
-
-
-        std::vector<float> train(std::vector<std::vector<IDType>>& walks, int epochs, int K, int C, float starting_alpha, bool verbose) {
+        template <typename ContentType>
+        std::vector<float> train(Graph<IDType, ContentType>& graph, int epochs, int walk_length, float p, float q, int K, int C, float starting_alpha, bool verbose, int batch_size = 1024) {
             std::vector<float> mean_losses;
             
-            long long total_words = 0;
-            for (const auto& walk : walks) {
-                total_words += walk.size();
-            }
-            long long total_iters = epochs * total_words;
-            std::atomic<long long> current_iter{0};
+            long long total_words = static_cast<long long>(graph.get_nodes().size()) * epochs * walk_length;
+            std::atomic<long long> shared_iter{0};
 
             std::vector<float> p_discard(dim_V, 0.0f);
             if (subsampling && total_words > 0) {
                 const float t = 1e-5f;
+                long long corpus_words = 0;
+                for(int f : Frecs) corpus_words += f;
                 for (int i = 0; i < dim_V; i++) {
-                    float fw = static_cast<float>(Frecs[i]) / static_cast<float>(total_words);
+                    float fw = static_cast<float>(Frecs[i]) / static_cast<float>(std::max(1LL, corpus_words));
                     float p_keep = (std::sqrt(fw / t) + 1.0f) * (t / fw);
                     p_discard[i] = std::max(0.0f, 1.0f - p_keep);
                 }
             }
 
-            for (int epoch = 0; epoch < epochs; ++epoch) {
-                
-                std::shuffle(walks.begin(), walks.end(), gen); 
+            auto iter = graph.get_walks_iter(epochs, walk_length, p, q);
 
-                float epoch_loss = 0.0f;
+            while (true) {
+                std::vector<IDType> flat_walks;
+                try {
+                    flat_walks = iter.next_batch(batch_size);
+                } catch (const std::runtime_error&) {
+                    break;
+                }
+
+                int num_walks = flat_walks.size() / walk_length;
+                float batch_loss = 0.0f;
                 int iter_count = 0;
 
-                #pragma omp parallel reduction(+:epoch_loss, iter_count)
+                #pragma omp parallel reduction(+:batch_loss, iter_count)
                 {
                     std::mt19937 local_gen(std::random_device{}() ^ omp_get_thread_num());
                     std::uniform_int_distribution<int> window_dis(1, C);
@@ -263,20 +254,19 @@ class SkipGram{
                     std::vector<float> diff_W1(dim_N, 0.0f);
 
                     #pragma omp for schedule(dynamic)
-                    for (size_t w = 0; w < walks.size(); ++w) {
-                        const auto& current_walk = walks[w];
-                        int walk_size = static_cast<int>(current_walk.size());
+                    for (int w = 0; w < num_walks; ++w) {
+                        int walk_start = w * walk_length;
                         long long local_iter_increment = 0;
 
-                        for (int i = 0; i < walk_size; i++) {
-                            
-                            long long current_iter_val = current_iter.load(std::memory_order_relaxed);
-                            float alpha = starting_alpha * (1.0f - static_cast<float>(current_iter_val) / total_iters);
+                        for (int i = 0; i < walk_length; i++) {
+                            long long current_iter_val = shared_iter.load(std::memory_order_relaxed);
+                            float alpha = starting_alpha * (1.0f - static_cast<float>(current_iter_val) / total_words);
                             if (alpha < starting_alpha * 0.0001f) alpha = starting_alpha * 0.0001f;
                             
                             local_iter_increment++;
 
-                            auto it_i = Vocab.find(current_walk[i]);
+                            IDType current_word = flat_walks[walk_start + i];
+                            auto it_i = Vocab.find(current_word);
                             if (it_i == Vocab.end()) continue; 
                             int word_idx = it_i->second;
 
@@ -286,12 +276,12 @@ class SkipGram{
 
                             int R = window_dis(local_gen); 
                             int left = std::max(0, i - R);
-                            int right = std::min(walk_size, i + R + 1);
+                            int right = std::min(walk_length, i + R + 1);
 
                             for (int j = left; j < right; j++) {
                                 if (j == i) continue;
 
-                                auto it_j = Vocab.find(current_walk[j]);
+                                auto it_j = Vocab.find(flat_walks[walk_start + j]);
                                 if (it_j == Vocab.end()) continue;
                                 int target_idx = it_j->second;
 
@@ -315,9 +305,9 @@ class SkipGram{
                                 }
 
                                 float epsilon = 1e-7f;
-                                epoch_loss -= std::log(std::max(out[0], epsilon)); 
+                                batch_loss -= std::log(std::max(out[0], epsilon)); 
                                 for (int k = 1; k <= K; ++k) {
-                                    epoch_loss -= std::log(std::max(1.0f - out[k], epsilon));
+                                    batch_loss -= std::log(std::max(1.0f - out[k], epsilon));
                                 }
                                 iter_count++;
 
@@ -338,26 +328,26 @@ class SkipGram{
                                 }
                             }
                         }
-                        current_iter.fetch_add(local_iter_increment, std::memory_order_relaxed);
+                        shared_iter.fetch_add(local_iter_increment, std::memory_order_relaxed);
                     }
                 } 
                 
                 Iters += iter_count;
                 
                 if (iter_count > 0) {
-                    float avg = epoch_loss / static_cast<float>(iter_count);
-                    mean_losses.push_back(avg);
+                    float avg_loss = batch_loss / static_cast<float>(iter_count);
+                    mean_losses.push_back(avg_loss);
                     if (verbose) {
-                        std::cout << "Epoch " << (epoch + 1) << "/" << epochs << " loss: " << avg << std::endl;
+                        std::cout << "Batch loss: " << avg_loss << " | Progress: " 
+                                  << (static_cast<double>(shared_iter.load()) / total_words) * 100.0 << "%" << std::endl;
                     }
                 }
-            } 
-
+            }
+            
             return mean_losses;
         }
 
         void clear(){
-            /* Clear the current weights */
             if (dim_V == 0) return; 
 
             std::fill(W2.begin(), W2.end(), 0.0f);
@@ -370,7 +360,6 @@ class SkipGram{
 
         std::vector<float> get_embedding(IDType word) const {
             auto it = Vocab.find(word);
-
 
             if (it == Vocab.end()) {
                 return {}; 
@@ -393,7 +382,6 @@ class SkipGram{
         }
         
     private:
-        //We use flattened matrix's for better optimization 
         std::vector<float> W1; 
         std::vector<float> W2; 
         int dim_N; 
@@ -405,7 +393,6 @@ class SkipGram{
         bool subsampling;
         mutable std::mt19937 gen{std::random_device{}()};
 
-        
         std::vector<int> unigram_table;
         const int table_size = 1e7;
         
@@ -436,10 +423,8 @@ class SkipGram{
         void update_network_size(int new_V) {
             dim_V = new_V;
             
-            
             W1.assign(dim_V * dim_N, 0.0f);
             W2.assign(dim_V * dim_N, 0.0f);
-            
             
             std::uniform_real_distribution<float> current_dis(-0.5f / dim_N, 0.5f / dim_N);
             for (int i = 0; i < dim_V * dim_N; ++i) {
@@ -453,10 +438,6 @@ class SkipGram{
         }
         
         std::vector<float> forward(int word, const std::vector<int>& target_words) const {
-            /*
-            For the loss calculations: target_words[0] will be the positive word while the rest will be the negative.
-            */
-                       
             std::vector<float> out;
             out.reserve(target_words.size());
             for (const int target: target_words){
@@ -476,7 +457,6 @@ class SkipGram{
         void backward(const std::vector<float>& out, int word, const std::vector<int>&  target_words, float alpha){
             std::vector<float> diff_W1( dim_N, 0.0f);
 
-            //update W2 and calculate W1_diff
             for (size_t i = 0; i<target_words.size(); i++){
                 int target = target_words[i];
                 float err = (i==0) ? (out[i] - 1.0f) : (out[i]);
@@ -494,7 +474,6 @@ class SkipGram{
 
         }
 
-
         float loss(const std::vector<float>& out) const {
             float epsilon = 1e-7f; 
             float loss = 0.0f;
@@ -510,7 +489,6 @@ class SkipGram{
             return loss;
         }
 
-
         std::vector<int> get_negatives(IDType target, int K) const {
             std::vector<int> words;
             words.reserve(K + 1);
@@ -524,9 +502,7 @@ class SkipGram{
                 int random_idx = unigram_dis(gen);
                 int negative_word = unigram_table[random_idx];
 
-
                 if (negative_word == target_idx) {
-
                     std::uniform_int_distribution<int> fallback_dis(0, dim_V - 1);
                     negative_word = fallback_dis(gen);
                 }
@@ -536,6 +512,4 @@ class SkipGram{
 
             return words;
         }
-        
-
 };

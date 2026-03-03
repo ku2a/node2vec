@@ -130,7 +130,7 @@ int main() {
     float alpha = 0.025f; 
 
     std::cout << "Starting training..." << std::endl;
-    model.train(all_walks, epochs, K, C, alpha, true);
+    model.train(graph, epochs,15,1.0f,1.0f, K, C, alpha, true);
 
     std::vector<float> emb_spain = model.get_embedding("Espana");
     

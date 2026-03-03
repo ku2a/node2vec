@@ -359,11 +359,11 @@ class SkipGram{
                     if (batch_iter_count > 0) {
                         float current_batch_loss = batch_loss_accum / static_cast<float>(batch_iter_count);
                         
-                        // Guardamos la pérdida de este lote específico
+                   
                         mean_losses.push_back(current_batch_loss);
                         Iters += batch_iter_count;
 
-                        // Lógica de Early Stopping
+     
                         if (current_batch_loss < best_loss - tol) {
                             best_loss = current_batch_loss;
                             no_improve_batches = 0;
@@ -379,7 +379,7 @@ class SkipGram{
                         }
 
                         if (no_improve_batches >= patience) {
-                            if (verbose) std::printf("\nEarly stopping en lote %zu\n", mean_losses.size());
+                            if (verbose) std::printf("\nEarly stopping in batch %zu\n", mean_losses.size());
                             early_stop = true;
                             break;
                         }

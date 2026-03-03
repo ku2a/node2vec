@@ -146,33 +146,10 @@ int main() {
         std::cout << "- " << pair.first << " (Similarity: " << pair.second << ")" << std::endl;
     }
     
-    std::string filename = "../outputs/embeddings/embeddings_europa.csv";
+    std::string filename = "../outputs/embeddings/europe_embeddings";
     std::cout << "\nSaving embeddings to " << filename << "..." << std::endl;
     
-    std::ofstream out_file(filename);
-    if (out_file.is_open()) {
-        out_file << "Node";
-        for (int i = 0; i < vector_dimension; ++i) {
-            out_file << ",D" << (i + 1);
-        }
-        out_file << "\n";
-
-        for (const auto& node : graph.get_nodes()) {
-            std::vector<float> emb = model.get_embedding(node);
-            
-            if (!emb.empty()) {
-                out_file << node;
-                for (float val : emb) {
-                    out_file << "," << val;
-                }
-                out_file << "\n";
-            }
-        }
-        out_file.close();
-        std::cout << "File saved." << std::endl;
-    } else {
-        std::cerr << "Error opening file " << filename << " for writing." << std::endl;
-    }
+    model.save_embeddings_bin(filename);
 
     return 0;
 }

@@ -73,7 +73,7 @@ p= 1.0
 q = 1.0
 walk_length = 10
 modelo.build_vocab(graph.get_nodes(), graph.get_degrees())
-losses = modelo.train(graph,epochs, walk_length ,p , q, K, C, alpha, True)
+losses = modelo.train(graph,epochs, walk_length ,p , q, K, C, alpha, True,tol=1e-1)
 embeddings = pd.DataFrame(modelo.get_embeddings())
 
 pca = PCA(n_components=2)
@@ -142,5 +142,6 @@ plt.plot(losses, marker='o')
 
 plt.show()
 
-modelo.save_model("models/modelo1")
+modelo.save_model("models/europe_model")
+modelo.save_embeddings_bin("outputs/embeddings/europe_embeddings")
 

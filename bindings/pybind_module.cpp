@@ -61,5 +61,6 @@ PYBIND11_MODULE(node2vec_cpp, m) {
         .def("cosine_similarity", &MySkipGram::cosine_similarity, py::arg("word1"), py::arg("word2"))
         .def("save_model", &MySkipGram::save_model, py::arg("filename"))
         .def("load_model", &MySkipGram::load_model, py::arg("filename"))
+        .def("save_embeddings_bin", &MySkipGram::save_embeddings_bin, py::arg("filename"))
         .def("most_similar", &MySkipGram::most_similar, py::arg("word"), py::arg("top_k") = 5);
 }

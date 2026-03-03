@@ -12,7 +12,17 @@
 template <typename IDType>
 class SkipGram{
     public:
+        void save_embeddings_bin(const std::string& filename) const {
+            std::ofstream out(filename, std::ios::binary);
+            if (!out) {
+                throw std::runtime_error("No se pudo abrir el archivo: " + filename);
+            }
+            out.write(reinterpret_cast<const char*>(&dim_V), sizeof(int));
+            out.write(reinterpret_cast<const char*>(&dim_N), sizeof(int));
+            out.write(reinterpret_cast<const char*>(W1.data()), W1.size() * sizeof(float));
 
+            out.close();
+        }
         SkipGram(int N = 200, bool subsampling = false) : 
             dim_N(N),
             dim_V(0),    
@@ -366,13 +376,13 @@ class SkipGram{
 
                     if (verbose) {
                         float progress = (static_cast<float>(processed_walks) / static_cast<float>(num_nodes)) * 100.0f;
-                        std::printf("\rEpoch %d/%d | Progreso: %.2f%% | Batch loss: %.6f", epoch + 1, epochs, progress, current_batch_loss);
+                        std::printf("\rEpoch %d/%d | Progress: %.2f%% | Batch loss: %.6f", epoch + 1, epochs, progress, current_batch_loss);
                         std::fflush(stdout);
                     }
 
                     if (no_improve_batches >= patience) {
                         if (verbose) {
-                            std::printf("\nEarly stopping: Perdida no mejoro por mas de %.6f durante %d lotes consecutivos.\n", tol, patience);
+                            std::printf("\nEarly stopping: loss didnt go up more than %.6f on the last %d batches.\n", tol, patience);
                         }
                         early_stop = true;
                         break;

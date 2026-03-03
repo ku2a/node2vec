@@ -251,9 +251,6 @@ class SkipGram{
                 if (early_stop) break;
 
                 auto iter = graph.get_walks_iter(1, walk_length, p, q);
-                
-                float epoch_loss = 0.0f;
-                long long epoch_iter_count = 0;
                 long long processed_walks = 0;
 
                 while (true) {
@@ -265,10 +262,10 @@ class SkipGram{
                     }
 
                     int num_walks = flat_walks.size() / walk_length;
-                    float batch_loss = 0.0f;
-                    int iter_count = 0;
+                    float batch_loss_accum = 0.0f;
+                    int batch_iter_count = 0;
 
-                    #pragma omp parallel reduction(+:batch_loss, iter_count)
+                    #pragma omp parallel reduction(+:batch_loss_accum, batch_iter_count)
                     {
                         std::mt19937 local_gen(std::random_device{}() ^ omp_get_thread_num());
                         std::uniform_int_distribution<int> window_dis(1, std::max(1, C));
@@ -332,11 +329,11 @@ class SkipGram{
                                     }
 
                                     float epsilon = 1e-7f;
-                                    batch_loss -= std::log(std::max(out[0], epsilon)); 
+                                    batch_loss_accum -= std::log(std::max(out[0], epsilon)); 
                                     for (int k = 1; k <= K; ++k) {
-                                        batch_loss -= std::log(std::max(1.0f - out[k], epsilon));
+                                        batch_loss_accum -= std::log(std::max(1.0f - out[k], epsilon));
                                     }
-                                    iter_count++;
+                                    batch_iter_count++;
 
                                     std::fill(diff_W1.begin(), diff_W1.end(), 0.0f);
                                     
@@ -358,47 +355,37 @@ class SkipGram{
                             shared_iter.fetch_add(local_iter_increment, std::memory_order_relaxed);
                         }
                     } 
-                    
-                    epoch_loss += batch_loss;
-                    epoch_iter_count += iter_count;
-                    processed_walks += num_walks;
 
-                    float current_batch_loss = (iter_count > 0) ? (batch_loss / static_cast<float>(iter_count)) : 0.0f;
+                    if (batch_iter_count > 0) {
+                        float current_batch_loss = batch_loss_accum / static_cast<float>(batch_iter_count);
+                        
+                        // Guardamos la pérdida de este lote específico
+                        mean_losses.push_back(current_batch_loss);
+                        Iters += batch_iter_count;
 
-                    if (current_batch_loss > 0.0f) {
+                        // Lógica de Early Stopping
                         if (current_batch_loss < best_loss - tol) {
                             best_loss = current_batch_loss;
                             no_improve_batches = 0;
                         } else {
                             no_improve_batches++;
                         }
-                    }
 
-                    if (verbose) {
-                        float progress = (static_cast<float>(processed_walks) / static_cast<float>(num_nodes)) * 100.0f;
-                        std::printf("\rEpoch %d/%d | Progress: %.2f%% | Batch loss: %.6f", epoch + 1, epochs, progress, current_batch_loss);
-                        std::fflush(stdout);
-                    }
-
-                    if (no_improve_batches >= patience) {
                         if (verbose) {
-                            std::printf("\nEarly stopping: loss didnt go up more than %.6f on the last %d batches.\n", tol, patience);
+                            processed_walks += num_walks;
+                            float progress = (static_cast<float>(processed_walks) / static_cast<float>(num_nodes)) * 100.0f;
+                            std::printf("\rEpoch %d/%d | Progreso: %.2f%% | Batch Loss: %.6f", epoch + 1, epochs, progress, current_batch_loss);
+                            std::fflush(stdout);
                         }
-                        early_stop = true;
-                        break;
-                    }
-                }
 
-                Iters += epoch_iter_count;
-                
-                if (epoch_iter_count > 0) {
-                    float avg_loss = epoch_loss / static_cast<float>(epoch_iter_count);
-                    mean_losses.push_back(avg_loss);
-                    if (verbose && !early_stop) {
-                        std::printf("\rEpoch %d/%d | Loss: %.6f | Progreso: 100.00%%          \n", epoch + 1, epochs, avg_loss);
-                        std::fflush(stdout);
+                        if (no_improve_batches >= patience) {
+                            if (verbose) std::printf("\nEarly stopping en lote %zu\n", mean_losses.size());
+                            early_stop = true;
+                            break;
+                        }
                     }
                 }
+                if (verbose && !early_stop) std::printf("\n");
             }
             
             return mean_losses;

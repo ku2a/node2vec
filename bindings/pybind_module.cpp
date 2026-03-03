@@ -42,8 +42,20 @@ PYBIND11_MODULE(node2vec_cpp, m) {
         .def(py::init<int, bool>(), py::arg("N") = 300, py::arg("subsampling") = false)
         .def("build_vocab", py::overload_cast<const std::vector<std::string>&>(&MySkipGram::build_vocab), py::arg("corpus"))
         .def("build_vocab", py::overload_cast<const std::vector<std::string>&, const std::vector<int>&>(&MySkipGram::build_vocab), py::arg("vocab"), py::arg("frecs"))
-        .def("train", &MySkipGram::train<std::vector<float>>, py::arg("graph"), py::arg("epochs"), py::arg("walk_length"), py::arg("p"), py::arg("q"), py::arg("K"), py::arg("C"), py::arg("starting_alpha"), py::arg("verbose"), py::arg("batch_size") = 1024)
-        .def("clear", &MySkipGram::clear)
+        .def("train", &MySkipGram::train<std::vector<float>>, 
+            py::arg("graph"), 
+            py::arg("epochs"), 
+            py::arg("walk_length"), 
+            py::arg("p"), 
+            py::arg("q"), 
+            py::arg("K"), 
+            py::arg("C"), 
+            py::arg("starting_alpha"), 
+            py::arg("verbose"), 
+            py::arg("batch_size") = 1024,
+            py::arg("tol") = 1e-4f,      
+            py::arg("patience") = 10     
+    ).def("clear", &MySkipGram::clear)
         .def("get_embedding", &MySkipGram::get_embedding, py::arg("word"))
         .def("get_embeddings", &MySkipGram::get_embeddings)
         .def("cosine_similarity", &MySkipGram::cosine_similarity, py::arg("word1"), py::arg("word2"))

@@ -7,6 +7,7 @@
 #include <stdexcept>
 #include <omp.h>
 #include <atomic>
+#include <limits>
 
 template <typename IDType>
 class SkipGram{
@@ -209,7 +210,7 @@ class SkipGram{
         }
 
         template <typename ContentType>
-        std::vector<float> train(Graph<IDType, ContentType>& graph, int epochs, int walk_length, float p, float q, int K, int C, float starting_alpha, bool verbose, int batch_size = 1024) {
+        std::vector<float> train(Graph<IDType, ContentType>& graph, int epochs, int walk_length, float p, float q, int K, int C, float starting_alpha, bool verbose, int batch_size = 1024, float tol = 1e-4f, int patience = 10) {
             
             if (dim_V <= 0) {
                 throw std::runtime_error("Error: Vocabulario vacio.");
@@ -232,11 +233,18 @@ class SkipGram{
                 }
             }
 
+            float best_loss = std::numeric_limits<float>::infinity();
+            int no_improve_batches = 0;
+            bool early_stop = false;
+
             for (int epoch = 0; epoch < epochs; ++epoch) {
+                if (early_stop) break;
+
                 auto iter = graph.get_walks_iter(1, walk_length, p, q);
                 
                 float epoch_loss = 0.0f;
                 long long epoch_iter_count = 0;
+                long long processed_walks = 0;
 
                 while (true) {
                     std::vector<IDType> flat_walks;
@@ -343,6 +351,32 @@ class SkipGram{
                     
                     epoch_loss += batch_loss;
                     epoch_iter_count += iter_count;
+                    processed_walks += num_walks;
+
+                    float current_batch_loss = (iter_count > 0) ? (batch_loss / static_cast<float>(iter_count)) : 0.0f;
+
+                    if (current_batch_loss > 0.0f) {
+                        if (current_batch_loss < best_loss - tol) {
+                            best_loss = current_batch_loss;
+                            no_improve_batches = 0;
+                        } else {
+                            no_improve_batches++;
+                        }
+                    }
+
+                    if (verbose) {
+                        float progress = (static_cast<float>(processed_walks) / static_cast<float>(num_nodes)) * 100.0f;
+                        std::printf("\rEpoch %d/%d | Progreso: %.2f%% | Batch loss: %.6f", epoch + 1, epochs, progress, current_batch_loss);
+                        std::fflush(stdout);
+                    }
+
+                    if (no_improve_batches >= patience) {
+                        if (verbose) {
+                            std::printf("\nEarly stopping: Perdida no mejoro por mas de %.6f durante %d lotes consecutivos.\n", tol, patience);
+                        }
+                        early_stop = true;
+                        break;
+                    }
                 }
 
                 Iters += epoch_iter_count;
@@ -350,9 +384,9 @@ class SkipGram{
                 if (epoch_iter_count > 0) {
                     float avg_loss = epoch_loss / static_cast<float>(epoch_iter_count);
                     mean_losses.push_back(avg_loss);
-                    if (verbose) {
-                        std::cout << "Epoch " << (epoch + 1) << "/" << epochs 
-                                  << " | Loss: " << avg_loss << std::endl;
+                    if (verbose && !early_stop) {
+                        std::printf("\rEpoch %d/%d | Loss: %.6f | Progreso: 100.00%%          \n", epoch + 1, epochs, avg_loss);
+                        std::fflush(stdout);
                     }
                 }
             }

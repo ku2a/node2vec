@@ -45,7 +45,9 @@ modelo_sg.train(
     K=5, 
     C=10, 
     starting_alpha=0.025, 
-    verbose=True
+    verbose=True,
+    tol=1e-3,
+    patience=10
 )
 
 end_train = time.time()

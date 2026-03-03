@@ -6,4 +6,6 @@ build/*
 *.zip
 datasets/*
 outputs/embeddings/*
+!outputs/embeddings/.gitkeep
 models/*
+!models/.gitkeep

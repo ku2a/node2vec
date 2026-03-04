@@ -28,7 +28,8 @@ PYBIND11_MODULE(node2vec_cpp, m) {
 
     py::class_<MyGraph>(m, "Graph")
         .def(py::init<>())
-        .def("get_adyacent", &MyGraph::get_adyacent, py::arg("ID"))
+        .def("get_adyacent", &MyGraph::get_adjacent, py::arg("ID"))
+        .def("are_connected", &MyGraph::are_connected, py::arg("ID1"), py::arg("ID2"))
         .def("add_vertex", &MyGraph::add_vertex, py::arg("ID"), py::arg("content"))
         .def("add_edge", &MyGraph::add_edge, py::arg("vertex1"), py::arg("vertex2"), py::arg("weight"))
         .def("remove_vertex", &MyGraph::remove_vertex, py::arg("ID"))

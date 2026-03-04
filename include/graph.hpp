@@ -31,7 +31,14 @@ template <typename IDType, typename ContentType> class Graph {
 public:
   WalkGenerator<IDType, ContentType> get_walks_iter(int num_walks, int num_steps, float p, float q);
 
-  std::vector<IDType> get_adyacent(IDType ID) const {
+  bool are_connected(int node1, int node2) const {
+    if (node1 == -1 || node2 == -1) return false;
+    for (const Edge& ed : Adyacencias[node1]) {
+      if (ed.dest == node2) return true;
+    }
+    return false;
+  }
+  std::vector<IDType> get_adjacent(IDType ID) const {
     auto it = IDs.find(ID);
     if (it == IDs.end()) {
       printf("ID not found in graph\n");
@@ -341,13 +348,7 @@ private:
     return walk;
   }
 
-  bool are_connected(int node1, int node2) const {
-    if (node1 == -1 || node2 == -1) return false;
-    for (const Edge& ed : Adyacencias[node1]) {
-      if (ed.dest == node2) return true;
-    }
-    return false;
-  }
+  
 };
 
 template <typename IDType, typename ContentType>

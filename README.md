@@ -1,4 +1,4 @@
-This is an implementation of the node2vec algorithm programmed from scratch using C++, as well as the graph implementation. It is fast and optimized using subsampling and Negative-sampling. We have used the pybind11 library to transform the code for python usage. It also uses OpenMP for multithreading.
+This is an implementation of the node2vec algorithm programmed from scratch using C++, as well as the graph implementation. It is fast and optimized using subsampling and Negative-sampling. We have used the pybind11 library to transform the code for python usage. It also uses OpenMP for multithreading. On the predictor directory you will se the code to get the embedding using a graph with 160k edges in 1 or 2 minutes.
 
 
 ## node2vec
